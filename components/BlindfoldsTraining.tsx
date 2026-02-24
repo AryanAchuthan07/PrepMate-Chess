@@ -63,7 +63,7 @@ export default function BlindfoldsTraining() {
     e.preventDefault()
     if (!move.trim() || !gameState.gameId) return
 
-    const moveStr = move.trim()
+    const moveStr = move.trim().toLowerCase()
     setMove('')
     setFeedback('')
 
@@ -229,9 +229,9 @@ export default function BlindfoldsTraining() {
             <input
               ref={moveInputRef}
               type="text"
-              placeholder="Enter move: Nf3"
+              placeholder="Enter move: nf3"
               value={move}
-              onChange={(e) => setMove(e.target.value.toUpperCase())}
+              onChange={(e) => setMove(e.target.value.toLowerCase())}
               disabled={gameState.status !== 'playing'}
               className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 disabled:opacity-50"
               autoComplete="off"
