@@ -57,10 +57,11 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Try to make user move
-    const result = game.chess.move(move, { sloppy: true })
-
-    if (!result) {
+    // Try to make user move (chess.js may throw on invalid input)
+    let userMoveResult: any = null
+    try {
+      userMoveResult = game.chess.move(move, { sloppy: true })
+    } catch (err) {
       return NextResponse.json({
         success: false,
         error: 'Illegal move',
@@ -69,16 +70,25 @@ export async function POST(request: NextRequest) {
       })
     }
 
-    game.moves.push(result.san)
+    if (!userMoveResult) {
+      return NextResponse.json({
+        success: false,
+        error: 'Illegal move',
+        validMoves: game.chess.moves({ verbose: true }).map((m: any) => m.san),
+        fen: game.chess.fen(),
+      })
+    }
+
+    game.moves.push(userMoveResult.san)
     game.lastUpdated = Date.now()
 
-    // Check game status
+    // If user immediately wins or draws
     if (game.chess.isCheckmate()) {
       activeGames.delete(gameId)
       return NextResponse.json({
         success: true,
         userMoveValid: true,
-        move: result.san,
+        userMove: userMoveResult.san,
         status: 'checkmate',
         result: 'User won!',
         fen: game.chess.fen(),
@@ -91,7 +101,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({
         success: true,
         userMoveValid: true,
-        move: result.san,
+        userMove: userMoveResult.san,
         status: 'draw',
         result: 'Draw',
         fen: game.chess.fen(),
@@ -108,26 +118,26 @@ export async function POST(request: NextRequest) {
 
     const inCheck = game.chess.inCheck()
     let status = 'playing'
-    let result = null
+    let outcome: string | null = null
 
     if (game.chess.isCheckmate()) {
       status = 'checkmate'
-      result = 'Engine won!'
+      outcome = 'Engine won!'
       activeGames.delete(gameId)
     } else if (game.chess.isDraw()) {
       status = 'draw'
-      result = 'Draw'
+      outcome = 'Draw'
       activeGames.delete(gameId)
     }
 
     return NextResponse.json({
       success: true,
       userMoveValid: true,
-      userMove: result.san,
+      userMove: userMoveResult.san,
       engineMove: engineMove,
       status,
       inCheck,
-      result,
+      result: outcome,
       fen: game.chess.fen(),
       moves: game.moves,
     })
