@@ -173,30 +173,44 @@ async function fetchFideProfile(idNum: string) {
     // Clean up name if found in h1
     if (name) name = cleanName(name)
 
-    // Try multiple ways to extract a standard rating
+    // Prefer numbers near the word 'Standard' (case-insensitive)
     let currentRating: number | null = null
-    const patterns = [
-      /Standard[^\d]{0,80}(\d{3,4})/i,
-      /(\d{3,4})[^\d]{0,20}Standard/i,
-      /Standard Rating[:\s\-]{0,10}(\d{3,4})/i,
-      /FIDE rating[:\s\-]{0,10}(\d{3,4})/i,
-    ]
-    for (const p of patterns) {
-      const m = text.match(p)
-      if (m) {
-        currentRating = Number(m[1])
-        break
+    const idx = text.search(/standard/i)
+    if (idx !== -1) {
+      // search within 200 chars around the match for a 3-4 digit number
+      const windowStart = Math.max(0, idx - 200)
+      const windowEnd = Math.min(text.length, idx + 200)
+      const window = text.slice(windowStart, windowEnd)
+      const m = window.match(/(\d{3,4})/)
+      if (m) currentRating = Number(m[1])
+    }
+
+    // If still not found, try several patterns across the page
+    if (!currentRating) {
+      const patterns = [
+        /Standard[^\d]{0,80}(\d{3,4})/i,
+        /(\d{3,4})[^\d]{0,20}Standard/i,
+        /Standard Rating[:\s\-]{0,10}(\d{3,4})/i,
+        /FIDE rating[:\s\-]{0,10}(\d{3,4})/i,
+        /"standardRating"\s*[:=]\s*(\d{3,4})/i,
+      ]
+      for (const p of patterns) {
+        const m = text.match(p)
+        if (m) {
+          currentRating = Number(m[1])
+          break
+        }
       }
     }
 
-    // If still not found, pick the most plausible 3-4 digit number near the top of the page
+    // If still not found, fallback to plausible numeric heuristics
     if (!currentRating) {
       const nums = Array.from(text.matchAll(/(\d{3,4})/g)).map((r) => Number(r[1]))
       if (nums.length) {
-        // prefer higher ratings in plausible range
         const candidates = nums.filter((n) => n >= 1000 && n <= 3000)
         if (candidates.length) {
-          currentRating = Math.max(...candidates.slice(0, 10))
+          // pick the most recent numbers near the end of page first
+          currentRating = candidates[candidates.length - 1]
         }
       }
     }

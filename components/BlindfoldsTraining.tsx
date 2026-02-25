@@ -1,6 +1,8 @@
 'use client'
 
 import { useState, useRef, useEffect } from 'react'
+import VisualBoard from './VisualBoard'
+import { Chess } from 'chess.js'
 
 interface ChessBoardProps {
   fen: string
@@ -30,12 +32,32 @@ export default function BlindfoldsTraining() {
   const [feedback, setFeedback] = useState('')
   const [showBoard, setShowBoard] = useState(false)
   const moveInputRef = useRef<HTMLInputElement>(null)
+  const [lastMoveTo, setLastMoveTo] = useState<string | null>(null)
 
   useEffect(() => {
     if (moveInputRef.current && gameState.status === 'playing') {
       moveInputRef.current.focus()
     }
   }, [gameState.status])
+
+  useEffect(() => {
+    // compute last move destination when moves update
+    if (gameState.moves && gameState.moves.length > 0) {
+      try {
+        const chess = new Chess()
+        let lastTo: string | null = null
+        for (const san of gameState.moves) {
+          const res = chess.move(san, { sloppy: true })
+          if (res && res.to) lastTo = res.to
+        }
+        setLastMoveTo(lastTo)
+      } catch (e) {
+        setLastMoveTo(null)
+      }
+    } else {
+      setLastMoveTo(null)
+    }
+  }, [gameState.moves])
 
   const startGame = async () => {
     setFeedback('')
@@ -231,10 +253,14 @@ export default function BlindfoldsTraining() {
 
       {(gameState.status === 'playing' || (gameState.status === 'finished' && showBoard)) && (
         <div className="space-y-6">
+          <div>
+            <VisualBoard lastMoveTo={lastMoveTo} />
+          </div>
+
           {!showBoard && gameState.status === 'playing' && (
             <div className="bg-gray-900 p-4 rounded-lg text-center">
               <p className="text-gray-300 text-sm">BLINDFOLD MODE</p>
-              <p className="text-gray-500 text-xs">Board is hidden</p>
+              <p className="text-gray-500 text-xs">Board is hidden (visual hints shown below)</p>
             </div>
           )}
 
