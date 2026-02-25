@@ -63,7 +63,31 @@ export default function BlindfoldsTraining() {
     e.preventDefault()
     if (!move.trim() || !gameState.gameId) return
 
-    const moveStr = move.trim().toLowerCase()
+    // Normalize SAN: allow user to type lower/upper case for pieces and promotions
+      const normalizeSAN = (m: string) => {
+      let s = m.trim()
+      if (!s) return s
+
+      // Normalize castling (allow 0 or o)
+      if (/^[0o]-/i.test(s)) {
+        return s.toUpperCase().replace(/0/g, 'O')
+      }
+
+      // Uppercase promotion piece (e8q or e8=q)
+        s = s.replace(/([a-h][18]=?)([nbrqk])/i, (__, p1, p2) => p1 + p2.toUpperCase())
+
+      // If the move starts with a piece letter (nbkrq) and is not a pawn move (file+rank), uppercase it
+      if (/^[nbrqk]/i.test(s) && !/^[a-h][1-8]/i.test(s)) {
+        s = s[0].toUpperCase() + s.slice(1)
+      }
+
+        // Strip trailing check/checkmate symbols + or # — accept SAN without them
+        s = s.replace(/[+#]+$/g, '')
+
+      return s
+    }
+
+    const moveStr = normalizeSAN(move)
     setMove('')
     setFeedback('')
 
@@ -229,9 +253,9 @@ export default function BlindfoldsTraining() {
             <input
               ref={moveInputRef}
               type="text"
-              placeholder="Enter move: nf3"
+              placeholder="Enter move: Nf3"
               value={move}
-              onChange={(e) => setMove(e.target.value.toLowerCase())}
+              onChange={(e) => setMove(e.target.value)}
               disabled={gameState.status !== 'playing'}
               className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 disabled:opacity-50"
               autoComplete="off"
@@ -267,12 +291,14 @@ export default function BlindfoldsTraining() {
           {gameState.status === 'playing' && (
             <div className="flex gap-2">
               <button
+                type="button"
                 onClick={resignGame}
                 className="flex-1 px-4 py-2 bg-red-600 text-white rounded-lg font-semibold hover:bg-red-700"
               >
                 Resign Game
               </button>
               <button
+                type="button"
                 onClick={showBoardToggle}
                 className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700"
               >

@@ -57,10 +57,26 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    // Normalize incoming SAN so lowercase piece letters or alternate input is accepted
+    const normalizeSAN = (m: string) => {
+      if (!m) return m
+      let s = m.trim()
+      if (/^[0o]-/i.test(s)) return s.toUpperCase().replace(/0/g, 'O')
+      s = s.replace(/([a-h][18]=?)([nbrqk])/i, (__, p1, p2) => p1 + p2.toUpperCase())
+      if (/^[nbrqk]/i.test(s) && !/^[a-h][1-8]/i.test(s)) {
+        s = s[0].toUpperCase() + s.slice(1)
+      }
+      // Strip trailing + or # if provided
+      s = s.replace(/[+#]+$/g, '')
+      return s
+    }
+
+    const normalizedMove = normalizeSAN(String(move))
+
     // Try to make user move (chess.js may throw on invalid input)
     let userMoveResult: any = null
     try {
-      userMoveResult = game.chess.move(move, { sloppy: true })
+      userMoveResult = game.chess.move(normalizedMove, { sloppy: true })
     } catch (err) {
       return NextResponse.json({
         success: false,
