@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
+// import small utilities
+import { parseFideJSRatingHistory as _parseFideJSRatingHistory, parseFideTableHistory as _parseFideTableHistory, normalizeHistory as _normalizeHistory, derivePeakFromHistory as _derivePeakFromHistory } from '../../../lib/opponent-utils'
 
 // Mock data for opponents - simulating USCF/FIDE database
 const mockDatabase: Record<string, {
@@ -58,7 +60,9 @@ const cache = new Map<string, { data: unknown; timestamp: number }>()
 const CACHE_TTL = 60 * 60 * 1000 // 1 hour
 
 export async function POST(request: NextRequest) {
-  const { id } = await request.json()
+  const body = await request.json()
+  const id = body?.id
+  const debugMode = !!body?.debug
 
   if (!id || typeof id !== 'string') {
     return NextResponse.json(
@@ -95,17 +99,17 @@ export async function POST(request: NextRequest) {
   try {
     if (id.startsWith('fide_')) {
       const num = id.replace(/^fide_/, '')
-      fetched = await fetchFideProfile(num)
+      fetched = await fetchFideProfile(num, debugMode)
     } else if (/^\d{6,8}$/.test(id)) {
       // 6-8 digit numeric IDs are frequently FIDE IDs - try FIDE first
-      fetched = await fetchFideProfile(id)
+      fetched = await fetchFideProfile(id, debugMode)
       // If it's 7 digits and FIDE lookup failed, try USCF as fallback
       if (!fetched && id.length === 7) {
-        fetched = await fetchUscfProfile(id)
+        fetched = await fetchUscfProfile(id, debugMode)
       }
     } else if (/^\d{7}$/.test(id)) {
       // 7-digit IDs likely USCF (fallback)
-      fetched = await fetchUscfProfile(id)
+      fetched = await fetchUscfProfile(id, debugMode)
     }
   } catch (e) {
     // ignore fetch errors and fall back to demo
@@ -113,17 +117,22 @@ export async function POST(request: NextRequest) {
   }
 
   if (fetched && fetched.name) {
+    const ratingHistory = fetched.ratingHistory || generateHistoryFromRating(fetched.currentRating || 1600)
     const opponentData = {
       id,
       name: fetched.name,
       currentRating: fetched.currentRating || 1600,
-      peakRating: fetched.peakRating || fetched.currentRating || 1800,
-      peakDate: fetched.peakDate || 'Unknown',
-      ratingHistory: fetched.ratingHistory || generateHistoryFromRating(fetched.currentRating || 1600),
-      trend: calculateTrend(fetched.ratingHistory || generateHistoryFromRating(fetched.currentRating || 1600)),
+      peakRating: fetched.peakRating || (ratingHistory.length ? Math.max(...ratingHistory.map((r: any) => r.rating)) : (fetched.currentRating || 1800)),
+      peakDate: fetched.peakDate || (() => {
+        const peak = ratingHistory.reduce((best: any, cur: any) => (cur.rating > best.rating ? cur : best), ratingHistory[0])
+        return peak ? `${peak.year}` : 'Unknown'
+      })(),
+      ratingHistory,
+      trend: calculateTrend(ratingHistory),
     }
 
-    const data = { success: true, opponent: opponentData }
+    const data: any = { success: true, opponent: opponentData }
+    if (debugMode && (fetched as any)?._debug) data._debug = (fetched as any)._debug
     cache.set(id, { data, timestamp: Date.now() })
     return NextResponse.json(data)
   }
@@ -144,7 +153,7 @@ export async function POST(request: NextRequest) {
   return NextResponse.json(data)
 }
 
-async function fetchFideProfile(idNum: string) {
+async function fetchFideProfile(idNum: string, debug = false) {
   try {
     const url = `https://ratings.fide.com/profile/${encodeURIComponent(idNum)}`
     const res = await fetch(url)
@@ -175,14 +184,34 @@ async function fetchFideProfile(idNum: string) {
 
     // Prefer numbers near the word 'Standard' (case-insensitive)
     let currentRating: number | null = null
-    const idx = text.search(/standard/i)
-    if (idx !== -1) {
-      // search within 200 chars around the match for a 3-4 digit number
-      const windowStart = Math.max(0, idx - 200)
-      const windowEnd = Math.min(text.length, idx + 200)
-      const window = text.slice(windowStart, windowEnd)
-      const m = window.match(/(\d{3,4})/)
-      if (m) currentRating = Number(m[1])
+    // Try a tight match where the rating is shown in a <p> before a 'STANDARD' label
+    const pStandardMatch = text.match(/<p[^>]*>\s*(\d{3,4})\s*<\/p>\s*<p[^>]*>\s*STANDARD/i)
+    if (pStandardMatch) {
+      currentRating = Number(pStandardMatch[1])
+    } else {
+      const idx = text.search(/standard/i)
+      if (idx !== -1) {
+        // search within 200 chars around the match for a 3-4 digit number
+        const windowStart = Math.max(0, idx - 200)
+        const windowEnd = Math.min(text.length, idx + 200)
+        const window = text.slice(windowStart, windowEnd)
+        const m = window.match(/(\d{3,4})/)
+        if (m) currentRating = Number(m[1])
+      }
+    }
+
+    // additional heuristic: find any 3-4 digit number that is immediately followed by a 'STANDARD' token nearby
+    if (!currentRating) {
+      for (const nm of text.matchAll(/(\d{3,4})/g)) {
+        const num = Number(nm[1])
+        if (num < 800 || num > 3000) continue
+        const endIdx = nm.index! + nm[0].length
+        const window = text.slice(endIdx, endIdx + 80)
+        if (/STANDARD/i.test(window)) {
+          currentRating = num
+          break
+        }
+      }
     }
 
     // If still not found, try several patterns across the page
@@ -215,36 +244,95 @@ async function fetchFideProfile(idNum: string) {
       }
     }
 
-    // Try to extract historical year-rating pairs from the page
-    const history: { year: number; rating: number }[] = []
-    for (const match of text.matchAll(/(20\d{2})[^\d]{0,50}(\d{3,4})/g)) {
-      const year = Number(match[1])
-      const rating = Number(match[2])
-      if (year >= 2000 && year <= new Date().getFullYear() && rating >= 800 && rating <= 3000) {
-        history.push({ year, rating })
+    // Try both JS chart parsing and table extraction, prefer table data when available
+    let ratingHistory: { year: number; rating: number }[] | undefined = undefined
+    let parsedHistory: { year: number; rating: number }[] | undefined = undefined
+    try {
+      const parsed = _parseFideJSRatingHistory(text as any)
+      if (parsed && parsed.length) {
+        const valid = parsed.filter((p) => typeof p.year === 'number' && typeof p.rating === 'number' && p.year >= 2000 && p.year <= new Date().getFullYear() && p.rating >= 800 && p.rating <= 3000)
+        if (valid.length) parsedHistory = valid
       }
+    } catch (e) {
+      parsedHistory = undefined
     }
 
-    // Normalize and dedupe history by year (keep last seen), sort ascending
-    let ratingHistory: { year: number; rating: number }[] | undefined = undefined
-    if (history.length) {
+    // use dedicated helper to parse any table-based history entries
+    let tableHistory = _parseFideTableHistory(text as any) || []
+
+    if (tableHistory.length) {
       const map = new Map<number, number>()
-      for (const h of history) map.set(h.year, h.rating)
+      if (parsedHistory) {
+        for (const h of parsedHistory) map.set(h.year, h.rating)
+      }
+      for (const h of tableHistory) map.set(h.year, h.rating)
       const years = Array.from(map.keys()).sort((a, b) => a - b)
       ratingHistory = years.map((y) => ({ year: y, rating: map.get(y)! }))
-      // Limit to most recent 6 entries
-      if (ratingHistory.length > 6) {
-        ratingHistory = ratingHistory.slice(-6)
+    } else if (parsedHistory && parsedHistory.length) {
+      ratingHistory = parsedHistory
+    }
+
+    // If we have parsed history, prefer it for currentRating only when we don't already have a reliable extraction
+    if ((!currentRating || currentRating < 800 || currentRating > 3000) && ratingHistory && ratingHistory.length) {
+      currentRating = ratingHistory[ratingHistory.length - 1].rating
+    }
+
+    // (ratingHistory is set above either by JS parser or regex fallback)
+
+    // attempt to detect peak rating mentioned explicitly
+    let peakRating: number | null = null
+    let peakDate: string | null = null
+    const peakPatterns = [/(Peak|Highest|Top)[^\d]{0,40}(\d{3,4})/i, /Highest rating[:\s\-]{0,10}(\d{3,4})/i, /Peak rating[:\s\-]{0,10}(\d{3,4})/i]
+    for (const p of peakPatterns) {
+      const m = text.match(p)
+      if (m) {
+        peakRating = Number(m[m.length - 1])
+        // ignore implausible peak values
+        if (peakRating < 800 || peakRating > 3000) peakRating = null
+        break
       }
     }
 
-    return { name, currentRating, ratingHistory }
+    // Ensure we have a rating history covering recent years (prefer last 10)
+    // normalize history to last 10 years and derive peak
+    const normalized = _normalizeHistory(ratingHistory || generateHistoryFromRating(currentRating || 1600, 10), 10)
+    const peak = _derivePeakFromHistory(normalized)
+    if (!peakRating && peak.peakRating) peakRating = peak.peakRating
+    if (!peakDate && peak.peakYear) peakDate = `${peak.peakYear}`
+
+    // additional heuristic: if the page contains a numeric candidate much larger than histMax,
+    // it may indicate the true peak (some tables mention peak separately). Use it if significantly higher.
+    const histMax = normalized.length ? Math.max(...normalized.map((r: any) => r.rating)) : 0
+    try {
+      // look for numeric candidates that have a nearby year (table row like '2025-Jul ... 2243')
+      for (const m of text.matchAll(/(\d{3,4})/g)) {
+        const num = Number(m[1])
+        if (num < 800 || num > 3000) continue
+        const idx = m.index || 0
+        const window = text.slice(Math.max(0, idx - 120), idx + 20)
+        const yMatch = window.match(/(20\d{2})/)
+        if (yMatch) {
+          const year = Number(yMatch[1])
+          if (num > histMax + 20 && year >= 2000 && year <= new Date().getFullYear()) {
+            peakRating = num
+            peakDate = `${year}`
+            break
+          }
+        }
+      }
+    } catch (e) {
+      // ignore
+    }
+
+    const out: any = { name, currentRating, ratingHistory: normalized, peakRating, peakDate }
+    if (debug) out._debug = { samplePage: text.slice(0, 2000) }
+    return out
   } catch (e) {
     return null
   }
 }
 
-async function fetchUscfProfile(idNum: string) {
+async function fetchUscfProfile(idNum: string, debug = false) {
   try {
     // Try a couple of likely USCF profile endpoints and the legacy MSA profile page
     const candidates = [
@@ -290,7 +378,7 @@ async function fetchUscfProfile(idNum: string) {
           if (candidates.length) currentRating = candidates[0]
         }
 
-        if (name) return { name, currentRating }
+        if (name) return debug ? { name, currentRating, _debug: { sample: text.slice(0, 800) } } : { name, currentRating }
       } catch {
         continue
       }
@@ -301,10 +389,12 @@ async function fetchUscfProfile(idNum: string) {
   }
 }
 
-function generateHistoryFromRating(currentRating: number) {
+function generateHistoryFromRating(currentRating: number, yearsCount = 4) {
   const history = [] as { year: number; rating: number }[]
+  const currentYear = new Date().getFullYear()
+  const startYear = currentYear - (yearsCount - 1)
   let r = Math.max(1000, Math.min(3000, Math.round(currentRating)))
-  for (let year = 2020; year <= 2023; year++) {
+  for (let year = startYear; year <= currentYear; year++) {
     const jitter = Math.round((Math.random() - 0.5) * 120)
     history.push({ year, rating: Math.max(1000, Math.min(3000, r + jitter)) })
   }
@@ -351,10 +441,12 @@ function calculateTrend(history: { year: number; rating: number }[]): string {
   return 'stable'
 }
 
-function generateRandomHistory() {
-  const history = []
+function generateRandomHistory(yearsCount = 4) {
+  const history: { year: number; rating: number }[] = []
+  const currentYear = new Date().getFullYear()
+  const startYear = currentYear - (yearsCount - 1)
   let rating = 1400 + Math.floor(Math.random() * 400)
-  for (let year = 2020; year <= 2023; year++) {
+  for (let year = startYear; year <= currentYear; year++) {
     const change = (Math.random() - 0.5) * 200
     rating = Math.max(1000, Math.min(3000, rating + change))
     history.push({ year, rating: Math.round(rating) })

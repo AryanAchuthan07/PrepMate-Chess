@@ -140,21 +140,38 @@ export default function OpponentAnalysis() {
               Rating History
             </h4>
             {opponent.ratingHistory.length > 0 ? (
-              <ResponsiveContainer width="100%" height={300}>
-                <LineChart data={opponent.ratingHistory}>
-                  <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis dataKey="year" />
-                  <YAxis domain={['dataMin - 50', 'dataMax + 50']} />
-                  <Tooltip formatter={(value) => value.toLocaleString()} />
-                  <Line
-                    type="monotone"
-                    dataKey="rating"
-                    stroke="#2563eb"
-                    dot={{ fill: '#2563eb' }}
-                    strokeWidth={2}
-                  />
-                </LineChart>
-              </ResponsiveContainer>
+              (() => {
+                const data = [...opponent.ratingHistory].sort((a, b) => a.year - b.year)
+                // ensure numeric years
+                data.forEach((d) => (d.year = Number(d.year)))
+                const years = data.map((d) => d.year)
+                // generate ticks: show all years if <=10 else sample every n years
+                let ticks: number[] = []
+                if (years.length <= 10) ticks = years
+                else {
+                  const step = Math.ceil(years.length / 10)
+                  ticks = years.filter((_, i) => i % step === 0)
+                  if (ticks[ticks.length - 1] !== years[years.length - 1]) ticks.push(years[years.length - 1])
+                }
+
+                return (
+                  <ResponsiveContainer width="100%" height={300}>
+                    <LineChart data={data}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis dataKey="year" type="number" domain={[Math.min(...years), Math.max(...years)]} ticks={ticks} />
+                      <YAxis domain={[dataMin => Math.max(800, dataMin - 50), dataMax => dataMax + 50]} />
+                      <Tooltip formatter={(value) => value.toLocaleString()} />
+                      <Line
+                        type="monotone"
+                        dataKey="rating"
+                        stroke="#2563eb"
+                        dot={{ fill: '#2563eb' }}
+                        strokeWidth={2}
+                      />
+                    </LineChart>
+                  </ResponsiveContainer>
+                )
+              })()
             ) : (
               <p className="text-gray-500">No rating history available</p>
             )}

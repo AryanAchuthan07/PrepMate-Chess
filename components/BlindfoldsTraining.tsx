@@ -32,7 +32,7 @@ export default function BlindfoldsTraining() {
   const [feedback, setFeedback] = useState('')
   const [showBoard, setShowBoard] = useState(false)
   const moveInputRef = useRef<HTMLInputElement>(null)
-  const [lastMoveTo, setLastMoveTo] = useState<string | null>(null)
+  const [highlights, setHighlights] = useState<Array<{ id: string; squares: string[] }>>([])
 
   useEffect(() => {
     if (moveInputRef.current && gameState.status === 'playing') {
@@ -41,21 +41,93 @@ export default function BlindfoldsTraining() {
   }, [gameState.status])
 
   useEffect(() => {
-    // compute last move destination when moves update
-    if (gameState.moves && gameState.moves.length > 0) {
-      try {
-        const chess = new Chess()
-        let lastTo: string | null = null
-        for (const san of gameState.moves) {
-          const res = chess.move(san, { sloppy: true })
-          if (res && res.to) lastTo = res.to
+    // compute last two moves (most recent first) and their travelled squares
+    if (!gameState.moves || gameState.moves.length === 0) {
+      setHighlights([])
+      return
+    }
+
+    try {
+      const chess = new Chess()
+      const movesInfo: Array<{ from: string; to: string; piece: string; flags?: string }> = []
+      for (const san of gameState.moves) {
+        const res = chess.move(san, { sloppy: true })
+        if (res && res.from && res.to) {
+          movesInfo.push({ from: res.from, to: res.to, piece: res.piece, flags: res.flags })
         }
-        setLastMoveTo(lastTo)
-      } catch (e) {
-        setLastMoveTo(null)
       }
-    } else {
-      setLastMoveTo(null)
+
+      const computePath = (from: string, to: string, piece?: string, flags?: string) => {
+        const filesIdx = { a: 0, b: 1, c: 2, d: 3, e: 4, f: 5, g: 6, h: 7 }
+        const fileFrom = from[0]
+        const rankFrom = Number(from[1])
+        const fileTo = to[0]
+        const rankTo = Number(to[1])
+        const fx = filesIdx[fileFrom]
+        const tx = filesIdx[fileTo]
+        const fy = rankFrom
+        const ty = rankTo
+
+        // knight jumps - just start and end
+        if (piece === 'n') return [from, to]
+
+        const dx = tx - fx
+        const dy = ty - fy
+
+        const steps = Math.max(Math.abs(dx), Math.abs(dy))
+        const path: string[] = []
+        const stepX = dx === 0 ? 0 : dx / Math.abs(dx)
+        const stepY = dy === 0 ? 0 : dy / Math.abs(dy)
+
+        // include from square
+        path.push(from)
+
+        // for pawn double push include intermediate
+        if (piece === 'p' && Math.abs(dy) === 2 && dx === 0) {
+          const midRank = fy + (dy / 2)
+          path.push(`${fileFrom}${midRank}`)
+        }
+
+        // sliding pieces and single steps
+        if (steps > 0) {
+          for (let i = 1; i <= steps; i++) {
+            const nx = fx + Math.round(stepX * i)
+            const ny = fy + Math.round(stepY * i)
+            if (nx >= 0 && nx < 8 && ny >= 1 && ny <= 8) {
+              const file = Object.keys(filesIdx)[nx]
+              path.push(`${file}${ny}`)
+            }
+          }
+        }
+
+        return Array.from(new Set(path))
+      }
+
+      const lastTwo = movesInfo.slice(-2)
+      const highlightArr: Array<{ id: string; squares: string[] }> = []
+      for (let i = lastTwo.length - 1; i >= 0; i--) {
+        const idxFromEnd = lastTwo.length - 1 - i
+        const mv = lastTwo[i]
+        const squares = computePath(mv.from, mv.to, mv.piece, mv.flags)
+        // push with most recent first (index 0)
+        highlightArr.unshift({ id: `mv-${idxFromEnd}`, squares })
+      }
+
+      // ensure order: most recent move at index 0, second-most at index 1
+      // movesInfo.slice(-2) returns [secondLast, last], so we want last first
+      if (movesInfo.length >= 2) {
+        const second = movesInfo[movesInfo.length - 2]
+        const last = movesInfo[movesInfo.length - 1]
+        setHighlights([
+          { id: 'last', squares: computePath(last.from, last.to, last.piece, last.flags) },
+          { id: 'second', squares: computePath(second.from, second.to, second.piece, second.flags) },
+        ])
+      } else {
+        const only = movesInfo[movesInfo.length - 1]
+        setHighlights([{ id: 'last', squares: computePath(only.from, only.to, only.piece, only.flags) }])
+      }
+    } catch (e) {
+      setHighlights([])
     }
   }, [gameState.moves])
 
@@ -251,10 +323,10 @@ export default function BlindfoldsTraining() {
         </div>
       )}
 
-      {(gameState.status === 'playing' || (gameState.status === 'finished' && showBoard)) && (
+      {(gameState.status === 'playing' || gameState.status === 'finished') && (
         <div className="space-y-6">
           <div>
-            <VisualBoard lastMoveTo={lastMoveTo} />
+            <VisualBoard fen={gameState.fen} showPieces={showBoard} highlights={highlights} />
           </div>
 
           {!showBoard && gameState.status === 'playing' && (
