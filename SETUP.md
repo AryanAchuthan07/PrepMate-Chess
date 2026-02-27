@@ -74,8 +74,6 @@ You should see the PrepMate Chess application with two sections:
 ### Testing Opponent Analysis
 
 1. In the left panel, enter one of these test IDs:
-   - `1234567` (John Doe)
-   - `9876543` (Jane Smith)
    - `fide_2000000` (Grandmaster Alex)
    - Any random ID (generates demo data)
 
@@ -182,7 +180,7 @@ You can test the APIs using curl or Postman:
 ```bash
 curl -X POST http://localhost:3000/api/opponent \
   -H "Content-Type: application/json" \
-  -d '{"id":"1234567"}'
+   -d '{"id":"fide_2000000"}'
 ```
 
 ### Test Chess API - Create Game

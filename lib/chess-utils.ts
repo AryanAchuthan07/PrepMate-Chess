@@ -31,14 +31,12 @@ export function getValidMoves(moves: any[]): string[] {
 }
 
 /**
- * Validate USCF or FIDE ID format
+ * Validate FIDE ID format
  */
 export function isValidPlayerId(id: string): boolean {
-  // USCF: 7-digit number
-  // FIDE: fide_[number] or 6-digit number
+  // FIDE: fide_[number] or 6-8 digit number
   return (
-    /^\d{7}$/.test(id) ||
-    /^\d{6}$/.test(id) ||
+    /^\d{6,8}$/.test(id) ||
     /^fide_\d+$/.test(id)
   )
 }

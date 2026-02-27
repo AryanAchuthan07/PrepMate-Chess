@@ -21,11 +21,42 @@ interface Opponent {
   trend: string
 }
 
+interface ChessComAnalysis {
+  username: string
+  profile: {
+    name?: string
+    title?: string
+    country?: string
+    followers?: number
+    lastOnline?: number
+  }
+  stats: {
+    totalGames: number
+    wins: number
+    losses: number
+    draws: number
+    highestRatedWin?: {
+      opponent: string
+      rating: number
+      url?: string
+    }
+  }
+  openings: {
+    white: { name: string; count: number }[]
+    black: { name: string; count: number }[]
+  }
+  recentGamesAnalyzed: number
+}
+
 export default function OpponentAnalysis() {
   const [id, setId] = useState('')
+  const [chessComUsername, setChessComUsername] = useState('')
   const [opponent, setOpponent] = useState<Opponent | null>(null)
+  const [chessComData, setChessComData] = useState<ChessComAnalysis | null>(null)
   const [loading, setLoading] = useState(false)
+  const [chessComLoading, setChessComLoading] = useState(false)
   const [error, setError] = useState('')
+  const [chessComError, setChessComError] = useState('')
 
   const handleSearch = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -36,6 +67,8 @@ export default function OpponentAnalysis() {
 
     setLoading(true)
     setError('')
+    setChessComError('')
+    setChessComData(null)
 
     try {
       const response = await fetch('/api/opponent', {
@@ -58,6 +91,32 @@ export default function OpponentAnalysis() {
     } finally {
       setLoading(false)
     }
+
+    const username = chessComUsername.trim()
+    if (username) {
+      setChessComLoading(true)
+      try {
+        const response = await fetch('/api/chesscom', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username }),
+        })
+
+        const data = await response.json()
+
+        if (!response.ok || !data.success) {
+          setChessComError(data.error || 'Failed to fetch Chess.com analysis')
+          setChessComData(null)
+        } else {
+          setChessComData(data.analysis)
+        }
+      } catch (err) {
+        setChessComError('Network error. Please try again.')
+        setChessComData(null)
+      } finally {
+        setChessComLoading(false)
+      }
+    }
   }
 
   const getTrendColor = (trend: string) => {
@@ -71,6 +130,11 @@ export default function OpponentAnalysis() {
     }
   }
 
+  const formatLastOnline = (timestamp?: number) => {
+    if (!timestamp) return 'Unknown'
+    return new Date(timestamp * 1000).toLocaleDateString()
+  }
+
   return (
     <div className="bg-white rounded-lg shadow-lg p-6">
       <h2 className="text-2xl font-bold text-gray-900 mb-6">
@@ -78,14 +142,22 @@ export default function OpponentAnalysis() {
       </h2>
 
       <form onSubmit={handleSearch} className="mb-6">
-        <div className="flex gap-2">
+        <div className="flex flex-col gap-3">
           <input
             type="text"
-            placeholder="Enter USCF ID or FIDE ID..."
+            placeholder="Enter FIDE ID..."
             value={id}
             onChange={(e) => setId(e.target.value)}
             className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
             disabled={loading}
+          />
+          <input
+            type="text"
+            placeholder="Optional: Chess.com username"
+            value={chessComUsername}
+            onChange={(e) => setChessComUsername(e.target.value)}
+            className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+            disabled={loading || chessComLoading}
           />
           <button
             type="submit"
@@ -176,13 +248,94 @@ export default function OpponentAnalysis() {
               <p className="text-gray-500">No rating history available</p>
             )}
           </div>
+
+          <div>
+            <h4 className="text-lg font-semibold text-gray-900 mb-4">
+              Chess.com Insights
+            </h4>
+            {chessComLoading && (
+              <p className="text-gray-500">Loading Chess.com analysis...</p>
+            )}
+            {chessComError && (
+              <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700">
+                {chessComError}
+              </div>
+            )}
+            {chessComData ? (
+              <div className="space-y-4">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                  <div className="bg-gray-50 p-4 rounded-lg">
+                    <p className="text-gray-600 text-sm">Profile</p>
+                    <p className="text-lg font-bold text-gray-900">
+                      {chessComData.profile.name || chessComData.username}
+                    </p>
+                    <p className="text-xs text-gray-500">
+                      Last online: {formatLastOnline(chessComData.profile.lastOnline)}
+                    </p>
+                  </div>
+                  <div className="bg-gray-50 p-4 rounded-lg">
+                    <p className="text-gray-600 text-sm">Results (recent)</p>
+                    <p className="text-lg font-bold text-gray-900">
+                      {chessComData.stats.wins}W / {chessComData.stats.losses}L / {chessComData.stats.draws}D
+                    </p>
+                    <p className="text-xs text-gray-500">
+                      Games analyzed: {chessComData.recentGamesAnalyzed}
+                    </p>
+                  </div>
+                  <div className="bg-gray-50 p-4 rounded-lg">
+                    <p className="text-gray-600 text-sm">Best Win</p>
+                    {chessComData.stats.highestRatedWin ? (
+                      <p className="text-lg font-bold text-gray-900">
+                        {chessComData.stats.highestRatedWin.rating} vs {chessComData.stats.highestRatedWin.opponent}
+                      </p>
+                    ) : (
+                      <p className="text-sm text-gray-500">No wins found</p>
+                    )}
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="bg-gray-50 p-4 rounded-lg">
+                    <p className="text-gray-600 text-sm mb-2">Top White Openings</p>
+                    {chessComData.openings.white.length ? (
+                      <ul className="space-y-1 text-sm text-gray-900">
+                        {chessComData.openings.white.map((o) => (
+                          <li key={`w-${o.name}`}>{o.name} • {o.count}</li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <p className="text-sm text-gray-500">No openings detected</p>
+                    )}
+                  </div>
+                  <div className="bg-gray-50 p-4 rounded-lg">
+                    <p className="text-gray-600 text-sm mb-2">Top Black Openings</p>
+                    {chessComData.openings.black.length ? (
+                      <ul className="space-y-1 text-sm text-gray-900">
+                        {chessComData.openings.black.map((o) => (
+                          <li key={`b-${o.name}`}>{o.name} • {o.count}</li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <p className="text-sm text-gray-500">No openings detected</p>
+                    )}
+                  </div>
+                </div>
+              </div>
+            ) : (
+              !chessComLoading && (
+                <p className="text-gray-500">
+                  Add a Chess.com username to view opening trends and best wins.
+                </p>
+              )
+            )}
+          </div>
         </div>
       )}
 
       {!opponent && !error && (
         <div className="text-center py-12">
           <p className="text-gray-500">
-            Enter a USCF or FIDE ID to view opponent analysis
+            Enter a FIDE ID to view opponent analysis
           </p>
         </div>
       )}

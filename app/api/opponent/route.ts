@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 // import small utilities
 import { parseFideJSRatingHistory as _parseFideJSRatingHistory, parseFideTableHistory as _parseFideTableHistory, normalizeHistory as _normalizeHistory, derivePeakFromHistory as _derivePeakFromHistory } from '../../../lib/opponent-utils'
 
-// Mock data for opponents - simulating USCF/FIDE database
+// Mock data for opponents - simulating FIDE database
 const mockDatabase: Record<string, {
   id: string
   name: string
@@ -11,34 +11,6 @@ const mockDatabase: Record<string, {
   peakDate: string
   ratingHistory: { year: number; rating: number }[]
 }> = {
-  '1234567': {
-    id: '1234567',
-    name: 'John Doe',
-    currentRating: 1825,
-    peakRating: 1970,
-    peakDate: 'July 2021',
-    ratingHistory: [
-      { year: 2018, rating: 1420 },
-      { year: 2019, rating: 1560 },
-      { year: 2020, rating: 1600 },
-      { year: 2021, rating: 1700 },
-      { year: 2022, rating: 1970 },
-      { year: 2023, rating: 1825 },
-    ],
-  },
-  '9876543': {
-    id: '9876543',
-    name: 'Jane Smith',
-    currentRating: 2100,
-    peakRating: 2150,
-    peakDate: 'December 2022',
-    ratingHistory: [
-      { year: 2020, rating: 1900 },
-      { year: 2021, rating: 1950 },
-      { year: 2022, rating: 2100 },
-      { year: 2023, rating: 2150 },
-    ],
-  },
   'fide_2000000': {
     id: 'fide_2000000',
     name: 'Grandmaster Alex',
@@ -101,15 +73,8 @@ export async function POST(request: NextRequest) {
       const num = id.replace(/^fide_/, '')
       fetched = await fetchFideProfile(num, debugMode)
     } else if (/^\d{6,8}$/.test(id)) {
-      // 6-8 digit numeric IDs are frequently FIDE IDs - try FIDE first
+      // 6-8 digit numeric IDs are treated as FIDE IDs
       fetched = await fetchFideProfile(id, debugMode)
-      // If it's 7 digits and FIDE lookup failed, try USCF as fallback
-      if (!fetched && id.length === 7) {
-        fetched = await fetchUscfProfile(id, debugMode)
-      }
-    } else if (/^\d{7}$/.test(id)) {
-      // 7-digit IDs likely USCF (fallback)
-      fetched = await fetchUscfProfile(id, debugMode)
     }
   } catch (e) {
     // ignore fetch errors and fall back to demo
@@ -327,63 +292,6 @@ async function fetchFideProfile(idNum: string, debug = false) {
     const out: any = { name, currentRating, ratingHistory: normalized, peakRating, peakDate }
     if (debug) out._debug = { samplePage: text.slice(0, 2000) }
     return out
-  } catch (e) {
-    return null
-  }
-}
-
-async function fetchUscfProfile(idNum: string, debug = false) {
-  try {
-    // Try a couple of likely USCF profile endpoints and the legacy MSA profile page
-    const candidates = [
-      `https://new.uschess.org/players/${encodeURIComponent(idNum)}`,
-      `https://www.uschess.org/players/${encodeURIComponent(idNum)}`,
-      `https://www.uschess.org/msa/MbrDtlMain.php?ID=${encodeURIComponent(idNum)}`,
-      `https://new.uschess.org/msa/MbrDtlMain.php?ID=${encodeURIComponent(idNum)}`,
-    ]
-    for (const url of candidates) {
-      try {
-        const res = await fetch(url)
-        if (!res.ok) continue
-        const text = await res.text()
-        let name: string | null = null
-        const titleMatch = text.match(/<title>([^<]+)<\/title>/i)
-        if (titleMatch) name = titleMatch[1].split('-')[0].trim()
-        if (!name) {
-          const h1Match = text.match(/<h1[^>]*>([^<]+)<\/h1>/i)
-          if (h1Match) name = h1Match[1].trim()
-        }
-
-        if (name) name = cleanName(name)
-
-        // get numeric rating if present - try several patterns including the MSA layout
-        let currentRating: number | null = null
-        const ratingPatterns = [
-          /(USCF[^\d]{0,20}|US Chess Rating[^\d]{0,20})(\d{3,4})/i,
-          /(Standard|Rating|USCF Rating)[:\s\-]{0,10}(\d{3,4})/i,
-          />(\d{3,4})<\/td>\s*<td[^>]*>Standard/i,
-        ]
-        for (const p of ratingPatterns) {
-          const m = text.match(p)
-          if (m) {
-            currentRating = Number(m[m.length - 1])
-            break
-          }
-        }
-
-        // If still not found, look for the first plausible 3-4 digit number
-        if (!currentRating) {
-          const nums = Array.from(text.matchAll(/(\d{3,4})/g)).map((r) => Number(r[1]))
-          const candidates = nums.filter((n) => n >= 800 && n <= 3000)
-          if (candidates.length) currentRating = candidates[0]
-        }
-
-        if (name) return debug ? { name, currentRating, _debug: { sample: text.slice(0, 800) } } : { name, currentRating }
-      } catch {
-        continue
-      }
-    }
-    return null
   } catch (e) {
     return null
   }

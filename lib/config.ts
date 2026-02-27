@@ -32,16 +32,6 @@ export const CONFIG = {
 
 export const SAMPLE_IDS = [
   {
-    id: '1234567',
-    name: 'John Doe',
-    description: 'USCF Player - Rating ~1825',
-  },
-  {
-    id: '9876543',
-    name: 'Jane Smith',
-    description: 'USCF Player - Rating ~2100',
-  },
-  {
     id: 'fide_2000000',
     name: 'Grandmaster Alex',
     description: 'FIDE Player - Rating ~2650',

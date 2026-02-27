@@ -5,7 +5,7 @@ An interactive web application for competitive chess players to prepare for oppo
 ## Features
 
 ### 1. Opponent Analysis
-- Search players by USCF ID or FIDE ID
+- Search players by FIDE ID
 - View detailed opponent reports including:
   - Current and peak ratings
   - Rating history visualized as a line chart
@@ -71,14 +71,12 @@ npm run dev
 ## Usage
 
 ### Opponent Analysis
-1. Enter a USCF ID (e.g., `1234567`) or FIDE ID (e.g., `fide_2000000`)
+1. Enter a FIDE ID (e.g., `fide_2000000`)
 2. Click "Search" to fetch opponent data
 3. View the report with rating history and trend analysis
 4. Results are cached for 1 hour
 
 **Demo IDs to try:**
-- `1234567` - John Doe (USCF)
-- `9876543` - Jane Smith (USCF)
 - `fide_2000000` - Grandmaster Alex (FIDE)
 
 ### Blindfold Chess Training
@@ -96,7 +94,7 @@ Fetch opponent rating data
 
 **Request:**
 ```json
-{ "id": "1234567" }
+{ "id": "fide_2000000" }
 ```
 
 **Response:**
@@ -104,11 +102,11 @@ Fetch opponent rating data
 {
   "success": true,
   "opponent": {
-    "id": "1234567",
-    "name": "John Doe",
-    "currentRating": 1825,
-    "peakRating": 1970,
-    "peakDate": "July 2021",
+    "id": "fide_2000000",
+    "name": "Grandmaster Alex",
+    "currentRating": 2650,
+    "peakRating": 2750,
+    "peakDate": "March 2023",
     "ratingHistory": [...],
     "trend": "improving"
   }
@@ -172,7 +170,7 @@ Manage chess game state and moves
 - [ ] Multi-player support
 - [ ] ELO rating system
 - [ ] Puzzle training mode
-- [ ] Real USCF/FIDE API integration
+- [ ] Real FIDE API integration
 - [ ] Mobile-optimized responsive design
 - [ ] Game replay and analysis tools
 

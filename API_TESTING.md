@@ -17,37 +17,7 @@ POST /api/opponent
 
 ### Test Cases
 
-#### 1. Valid USCF ID (Sample Data)
-```bash
-curl -X POST http://localhost:3000/api/opponent \
-  -H "Content-Type: application/json" \
-  -d '{"id":"1234567"}'
-```
-
-**Expected Response** (200 OK):
-```json
-{
-  "success": true,
-  "opponent": {
-    "id": "1234567",
-    "name": "John Doe",
-    "currentRating": 1825,
-    "peakRating": 1970,
-    "peakDate": "July 2021",
-    "ratingHistory": [
-      {"year": 2018, "rating": 1420},
-      {"year": 2019, "rating": 1560},
-      {"year": 2020, "rating": 1600},
-      {"year": 2021, "rating": 1700},
-      {"year": 2022, "rating": 1970},
-      {"year": 2023, "rating": 1825}
-    ],
-    "trend": "declining"
-  }
-}
-```
-
-#### 2. Valid FIDE ID (Sample Data)
+#### 1. Valid FIDE ID (Sample Data)
 ```bash
 curl -X POST http://localhost:3000/api/opponent \
   -H "Content-Type: application/json" \
@@ -75,8 +45,7 @@ curl -X POST http://localhost:3000/api/opponent \
   }
 }
 ```
-
-#### 3. Unknown ID (Generated Demo Data)
+#### 2. Unknown ID (Generated Demo Data)
 ```bash
 curl -X POST http://localhost:3000/api/opponent \
   -H "Content-Type: application/json" \
@@ -104,7 +73,7 @@ curl -X POST http://localhost:3000/api/opponent \
 }
 ```
 
-#### 4. Invalid ID (Empty/Missing)
+#### 3. Invalid ID (Empty/Missing)
 ```bash
 curl -X POST http://localhost:3000/api/opponent \
   -H "Content-Type: application/json" \
@@ -120,7 +89,7 @@ curl -X POST http://localhost:3000/api/opponent \
 
 ### Caching Test
 
-1. Make first request with ID `1234567`:
+1. Make first request with ID `fide_2000000`:
    - Response time: ~300ms (API call + processing)
    - Notice: `"timestamp"` in cache
 
@@ -390,12 +359,12 @@ Create a Postman collection by importing this JSON:
       "name": "Opponent Analysis",
       "item": [
         {
-          "name": "Search USCF ID",
+          "name": "Search FIDE ID",
           "request": {
             "method": "POST",
             "url": "http://localhost:3000/api/opponent",
             "body": {
-              "raw": "{\"id\":\"1234567\"}",
+              "raw": "{\"id\":\"fide_2000000\"}",
               "type": "json"
             }
           }
